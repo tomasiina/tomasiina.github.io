@@ -1,0 +1,650 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Neon Space Vice</title>
+    <style>
+        body {
+            margin: 0;
+            padding: 0;
+            background: linear-gradient(45deg, #0a0a0a, #1a0a1a);
+            color: #ff0080;
+            font-family: 'Courier New', monospace;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+            overflow: hidden;
+        }
+        
+        .game-container {
+            text-align: center;
+            border: 2px solid #ff0080;
+            padding: 20px;
+            background: radial-gradient(circle at center, #1a0a1a, #0a0a0a);
+            box-shadow: 0 0 30px #ff0080, inset 0 0 30px rgba(255, 0, 128, 0.1);
+            border-radius: 10px;
+        }
+        
+        canvas {
+            border: 2px solid #00ffff;
+            background: linear-gradient(180deg, #000428, #004e92);
+            display: block;
+            margin: 10px auto;
+            box-shadow: 0 0 20px #00ffff;
+        }
+        
+        .controls {
+            margin-top: 10px;
+            font-size: 12px;
+            color: #00ffff;
+        }
+        
+        .score {
+            font-size: 16px;
+            margin: 10px 0;
+            color: #ff0080;
+            text-shadow: 0 0 10px #ff0080;
+        }
+        
+        .game-over {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: rgba(0, 0, 0, 0.9);
+            padding: 20px;
+            border: 2px solid #ff0080;
+            display: none;
+            border-radius: 10px;
+            box-shadow: 0 0 20px #ff0080;
+        }
+        
+        h1 {
+            color: #ff0080;
+            text-shadow: 0 0 20px #ff0080;
+            font-size: 24px;
+            margin-bottom: 10px;
+        }
+        
+        button {
+            background: linear-gradient(45deg, #ff0080, #00ffff);
+            color: white;
+            border: none;
+            padding: 10px 20px;
+            font-family: 'Courier New', monospace;
+            cursor: pointer;
+            border-radius: 5px;
+            box-shadow: 0 0 10px rgba(255, 0, 128, 0.5);
+        }
+        
+        button:hover {
+            box-shadow: 0 0 20px rgba(255, 0, 128, 0.8);
+        }
+        
+        .audio-controls {
+            margin-top: 10px;
+            font-size: 12px;
+            color: #00ffff;
+        }
+    </style>
+</head>
+<body>
+    <div class="game-container">
+        <h1>🌴 NEON SPACE VICE 🌴</h1>
+        <div class="score">Счет: <span id="score">0</span> | Жизни: <span id="lives">3</span></div>
+        <canvas id="gameCanvas" width="600" height="400"></canvas>
+        <div class="controls">
+            ←→ - движение | ПРОБЕЛ - стрельба | ESC - пауза | M - музыка
+        </div>
+        <div class="audio-controls">
+            🎵 Музыка: <span id="musicStatus">ВКЛ</span> | Трек: <span id="currentTrack">Synth Wave</span>
+        </div>
+        
+        <div class="game-over" id="gameOver">
+            <h2>GAME OVER</h2>
+            <p>Ваш счет: <span id="finalScore">0</span></p>
+            <button onclick="restartGame()">Новая игра</button>
+        </div>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        
+        // Создаем аудио контекст для синтеза музыки
+        let audioContext;
+        let musicEnabled = true;
+        let currentOscillator = null;
+        let gainNode = null;
+        let bassOscillator = null;
+        let bassGain = null;
+        
+        function initAudio() {
+            try {
+                audioContext = new (window.AudioContext || window.webkitAudioContext)();
+                gainNode = audioContext.createGain();
+                bassGain = audioContext.createGain();
+                gainNode.connect(audioContext.destination);
+                bassGain.connect(audioContext.destination);
+                gainNode.gain.value = 0.1;
+                bassGain.gain.value = 0.05;
+                
+                playBackgroundMusic();
+            } catch (e) {
+                console.log('Audio not supported');
+            }
+        }
+        
+        function playBackgroundMusic() {
+            if (!audioContext || !musicEnabled) return;
+            
+            // Основная синтезаторная мелодия
+            const notes = [220, 246.94, 261.63, 293.66, 329.63, 369.99, 415.30, 466.16];
+            let noteIndex = 0;
+            
+            function playNote() {
+                if (currentOscillator) {
+                    currentOscillator.stop();
+                }
+                
+                currentOscillator = audioContext.createOscillator();
+                currentOscillator.connect(gainNode);
+                currentOscillator.type = 'sawtooth';
+                currentOscillator.frequency.value = notes[noteIndex % notes.length];
+                
+                // Добавляем модуляцию
+                const lfo = audioContext.createOscillator();
+                const lfoGain = audioContext.createGain();
+                lfo.connect(lfoGain);
+                lfoGain.connect(currentOscillator.frequency);
+                lfo.frequency.value = 5;
+                lfoGain.gain.value = 10;
+                
+                currentOscillator.start();
+                lfo.start();
+                
+                noteIndex++;
+                
+                setTimeout(() => {
+                    if (lfo) lfo.stop();
+                }, 800);
+            }
+            
+            // Басовая линия
+            function playBass() {
+                if (bassOscillator) {
+                    bassOscillator.stop();
+                }
+                
+                bassOscillator = audioContext.createOscillator();
+                bassOscillator.connect(bassGain);
+                bassOscillator.type = 'square';
+                bassOscillator.frequency.value = 55;
+                bassOscillator.start();
+                
+                setTimeout(() => {
+                    if (bassOscillator) bassOscillator.stop();
+                }, 200);
+            }
+            
+            // Запускаем мелодию и бас
+            setInterval(playNote, 800);
+            setInterval(playBass, 400);
+        }
+        
+        function toggleMusic() {
+            musicEnabled = !musicEnabled;
+            document.getElementById('musicStatus').textContent = musicEnabled ? 'ВКЛ' : 'ВЫКЛ';
+            
+            if (musicEnabled) {
+                if (!audioContext) initAudio();
+                playBackgroundMusic();
+            } else {
+                if (currentOscillator) currentOscillator.stop();
+                if (bassOscillator) bassOscillator.stop();
+            }
+        }
+        
+        let gameState = {
+            score: 0,
+            lives: 3,
+            gameOver: false,
+            paused: false,
+            level: 1,
+            time: 0
+        };
+        
+        let player = {
+            x: canvas.width / 2 - 15,
+            y: canvas.height - 50,
+            width: 30,
+            height: 20,
+            speed: 5
+        };
+        
+        let bullets = [];
+        let enemies = [];
+        let stars = [];
+        let explosions = [];
+        let palmTrees = [];
+        let neonGrid = [];
+        let viceGirls = [];
+        
+        // Создаем неоновую сетку
+        for (let i = 0; i < 20; i++) {
+            neonGrid.push({
+                x: i * 30,
+                y: canvas.height - 100 + Math.sin(i * 0.5) * 20,
+                offset: i * 0.1
+            });
+        }
+        
+        // Создаем силуэты девушек в стиле Vice City
+        for (let i = 0; i < 3; i++) {
+            viceGirls.push({
+                x: Math.random() * canvas.width,
+                y: canvas.height - 150 + Math.random() * 50,
+                speed: 0.5 + Math.random() * 1,
+                opacity: 0.3 + Math.random() * 0.4,
+                scale: 0.8 + Math.random() * 0.4
+            });
+        }
+        
+        // Создаем пальмы
+        for (let i = 0; i < 5; i++) {
+            palmTrees.push({
+                x: Math.random() * canvas.width,
+                y: canvas.height - 80,
+                sway: Math.random() * 0.02
+            });
+        }
+        
+        // Создаем звезды
+        for (let i = 0; i < 100; i++) {
+            stars.push({
+                x: Math.random() * canvas.width,
+                y: Math.random() * canvas.height,
+                speed: Math.random() * 3 + 1,
+                brightness: Math.random()
+            });
+        }
+        
+        // Управление
+        let keys = {};
+        
+        document.addEventListener('keydown', (e) => {
+            keys[e.code] = true;
+            if (e.code === 'Space') {
+                e.preventDefault();
+                shoot();
+            }
+            if (e.code === 'Escape') {
+                gameState.paused = !gameState.paused;
+            }
+            if (e.code === 'KeyM') {
+                toggleMusic();
+            }
+        });
+        
+        document.addEventListener('keyup', (e) => {
+            keys[e.code] = false;
+        });
+        
+        // Инициализация аудио при первом клике
+        document.addEventListener('click', () => {
+            if (!audioContext) {
+                initAudio();
+            }
+        }, { once: true });
+        
+        function shoot() {
+            if (gameState.gameOver || gameState.paused) return;
+            
+            bullets.push({
+                x: player.x + player.width / 2 - 2,
+                y: player.y,
+                width: 4,
+                height: 15,
+                speed: 8,
+                color: '#00ffff',
+                glow: true
+            });
+        }
+        
+        function spawnEnemy() {
+            const enemyTypes = ['neon', 'cyber', 'retro'];
+            const type = enemyTypes[Math.floor(Math.random() * enemyTypes.length)];
+            
+            enemies.push({
+                x: Math.random() * (canvas.width - 40),
+                y: -40,
+                width: 40,
+                height: 25,
+                speed: 1 + Math.random() * 2 + gameState.level * 0.3,
+                type: type,
+                color: type === 'neon' ? '#ff0080' : type === 'cyber' ? '#00ffff' : '#ffff00',
+                points: type === 'neon' ? 15 : type === 'cyber' ? 25 : 10
+            });
+        }
+        
+        function createExplosion(x, y) {
+            explosions.push({
+                x: x,
+                y: y,
+                particles: [],
+                life: 30
+            });
+            
+            for (let i = 0; i < 12; i++) {
+                explosions[explosions.length - 1].particles.push({
+                    x: x,
+                    y: y,
+                    vx: (Math.random() - 0.5) * 8,
+                    vy: (Math.random() - 0.5) * 8,
+                    color: ['#ff0080', '#00ffff', '#ffff00'][Math.floor(Math.random() * 3)]
+                });
+            }
+        }
+        
+        function update() {
+            if (gameState.gameOver || gameState.paused) return;
+            
+            gameState.time += 0.016;
+            
+            // Движение игрока
+            if (keys['ArrowLeft'] && player.x > 0) {
+                player.x -= player.speed;
+            }
+            if (keys['ArrowRight'] && player.x < canvas.width - player.width) {
+                player.x += player.speed;
+            }
+            
+            // Обновляем звезды
+            stars.forEach(star => {
+                star.y += star.speed;
+                if (star.y > canvas.height) {
+                    star.y = 0;
+                    star.x = Math.random() * canvas.width;
+                }
+                star.brightness = 0.3 + Math.sin(gameState.time * 2 + star.x * 0.01) * 0.7;
+            });
+            
+            // Обновляем девушек Vice City
+            viceGirls.forEach(girl => {
+                girl.x -= girl.speed;
+                if (girl.x < -50) {
+                    girl.x = canvas.width + 50;
+                    girl.y = canvas.height - 150 + Math.random() * 50;
+                }
+                girl.opacity = 0.2 + Math.sin(gameState.time + girl.x * 0.01) * 0.3;
+            });
+            
+            // Обновляем пули
+            bullets = bullets.filter(bullet => {
+                bullet.y -= bullet.speed;
+                return bullet.y > -20;
+            });
+            
+            // Обновляем врагов
+            enemies = enemies.filter(enemy => {
+                enemy.y += enemy.speed;
+                return enemy.y < canvas.height + 50;
+            });
+            
+            // Спавним врагов
+            if (Math.random() < 0.015 + gameState.level * 0.005) {
+                spawnEnemy();
+            }
+            
+            // Проверяем столкновения пуль с врагами
+            bullets.forEach((bullet, bulletIndex) => {
+                enemies.forEach((enemy, enemyIndex) => {
+                    if (bullet.x < enemy.x + enemy.width &&
+                        bullet.x + bullet.width > enemy.x &&
+                        bullet.y < enemy.y + enemy.height &&
+                        bullet.y + bullet.height > enemy.y) {
+                        
+                        createExplosion(enemy.x + enemy.width / 2, enemy.y + enemy.height / 2);
+                        bullets.splice(bulletIndex, 1);
+                        enemies.splice(enemyIndex, 1);
+                        
+                        gameState.score += enemy.points;
+                        
+                        if (gameState.score % 300 === 0) {
+                            gameState.level++;
+                        }
+                    }
+                });
+            });
+            
+            // Проверяем столкновения игрока с врагами
+            enemies.forEach((enemy, enemyIndex) => {
+                if (player.x < enemy.x + enemy.width &&
+                    player.x + player.width > enemy.x &&
+                    player.y < enemy.y + enemy.height &&
+                    player.y + player.height > enemy.y) {
+                    
+                    createExplosion(player.x + player.width / 2, player.y + player.height / 2);
+                    enemies.splice(enemyIndex, 1);
+                    gameState.lives--;
+                    
+                    if (gameState.lives <= 0) {
+                        gameState.gameOver = true;
+                        document.getElementById('gameOver').style.display = 'block';
+                        document.getElementById('finalScore').textContent = gameState.score;
+                    }
+                }
+                
+                if (enemy.y > canvas.height) {
+                    gameState.lives--;
+                    if (gameState.lives <= 0) {
+                        gameState.gameOver = true;
+                        document.getElementById('gameOver').style.display = 'block';
+                        document.getElementById('finalScore').textContent = gameState.score;
+                    }
+                }
+            });
+            
+            // Обновляем взрывы
+            explosions = explosions.filter(explosion => {
+                explosion.life--;
+                explosion.particles.forEach(particle => {
+                    particle.x += particle.vx;
+                    particle.y += particle.vy;
+                    particle.vx *= 0.95;
+                    particle.vy *= 0.95;
+                });
+                return explosion.life > 0;
+            });
+            
+            // Обновляем UI
+            document.getElementById('score').textContent = gameState.score;
+            document.getElementById('lives').textContent = gameState.lives;
+        }
+        
+        function drawViceGirl(x, y, scale, opacity) {
+            ctx.save();
+            ctx.globalAlpha = opacity;
+            ctx.translate(x, y);
+            ctx.scale(scale, scale);
+            
+            // Силуэт девушки в купальнике
+            ctx.fillStyle = '#ff0080';
+            ctx.shadowBlur = 10;
+            ctx.shadowColor = '#ff0080';
+            
+            // Голова
+            ctx.beginPath();
+            ctx.arc(0, -30, 8, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // Тело
+            ctx.fillRect(-4, -22, 8, 15);
+            
+            // Купальник (верх)
+            ctx.fillStyle = '#00ffff';
+            ctx.fillRect(-4, -18, 8, 6);
+            
+            // Купальник (низ)
+            ctx.fillRect(-4, -10, 8, 4);
+            
+            // Ноги
+            ctx.fillStyle = '#ff0080';
+            ctx.fillRect(-3, -6, 2, 12);
+            ctx.fillRect(1, -6, 2, 12);
+            
+            // Руки
+            ctx.fillRect(-6, -18, 2, 8);
+            ctx.fillRect(4, -18, 2, 8);
+            
+            ctx.restore();
+        }
+        
+        function draw() {
+            // Градиентный фон
+            const gradient = ctx.createLinearGradient(0, 0, 0, canvas.height);
+            gradient.addColorStop(0, '#000428');
+            gradient.addColorStop(0.5, '#004e92');
+            gradient.addColorStop(1, '#000428');
+            ctx.fillStyle = gradient;
+            ctx.fillRect(0, 0, canvas.width, canvas.height);
+            
+            // Рисуем неоновую сетку
+            ctx.strokeStyle = '#ff0080';
+            ctx.lineWidth = 1;
+            ctx.shadowBlur = 5;
+            ctx.shadowColor = '#ff0080';
+            
+            for (let i = 0; i < neonGrid.length - 1; i++) {
+                const current = neonGrid[i];
+                const next = neonGrid[i + 1];
+                
+                ctx.beginPath();
+                ctx.moveTo(current.x, current.y + Math.sin(gameState.time * 2 + current.offset) * 10);
+                ctx.lineTo(next.x, next.y + Math.sin(gameState.time * 2 + next.offset) * 10);
+                ctx.stroke();
+            }
+            
+            // Рисуем пальмы
+            ctx.shadowBlur = 0;
+            palmTrees.forEach(tree => {
+                ctx.fillStyle = '#2a5f2a';
+                ctx.fillRect(tree.x, tree.y, 4, 30);
+                
+                // Листья пальмы
+                ctx.fillStyle = '#4a8f4a';
+                for (let i = 0; i < 6; i++) {
+                    const angle = (i * Math.PI / 3) + Math.sin(gameState.time + tree.sway) * 0.3;
+                    const x = tree.x + 2 + Math.cos(angle) * 15;
+                    const y = tree.y + Math.sin(angle) * 8;
+                    ctx.fillRect(x, y, 2, 8);
+                }
+            });
+            
+            // Рисуем звезды
+            stars.forEach(star => {
+                ctx.fillStyle = `rgba(255, 255, 255, ${star.brightness})`;
+                ctx.fillRect(star.x, star.y, 2, 2);
+            });
+            
+            // Рисуем девушек Vice City
+            viceGirls.forEach(girl => {
+                drawViceGirl(girl.x, girl.y, girl.scale, girl.opacity);
+            });
+            
+            if (gameState.gameOver) return;
+            
+            // Рисуем игрока
+            ctx.shadowBlur = 10;
+            ctx.shadowColor = '#00ffff';
+            ctx.fillStyle = '#00ffff';
+            ctx.fillRect(player.x, player.y, player.width, player.height);
+            
+            // Двигатель
+            ctx.fillStyle = '#ffffff';
+            ctx.fillRect(player.x + 5, player.y + 20, 5, 8);
+            ctx.fillRect(player.x + 20, player.y + 20, 5, 8);
+            
+            // Рисуем пули
+            bullets.forEach(bullet => {
+                ctx.shadowBlur = 15;
+                ctx.shadowColor = bullet.color;
+                ctx.fillStyle = bullet.color;
+                ctx.fillRect(bullet.x, bullet.y, bullet.width, bullet.height);
+            });
+            
+            // Рисуем врагов
+            enemies.forEach(enemy => {
+                ctx.shadowBlur = 10;
+                ctx.shadowColor = enemy.color;
+                ctx.fillStyle = enemy.color;
+                ctx.fillRect(enemy.x, enemy.y, enemy.width, enemy.height);
+                
+                // Детали врага
+                ctx.fillStyle = '#ffffff';
+                ctx.fillRect(enemy.x + 5, enemy.y + 5, 5, 5);
+                ctx.fillRect(enemy.x + 30, enemy.y + 5, 5, 5);
+            });
+            
+            // Рисуем взрывы
+            explosions.forEach(explosion => {
+                explosion.particles.forEach(particle => {
+                    ctx.shadowBlur = 20;
+                    ctx.shadowColor = particle.color;
+                    ctx.fillStyle = particle.color;
+                    ctx.fillRect(particle.x, particle.y, 3, 3);
+                });
+            });
+            
+            // Показываем паузу
+            if (gameState.paused) {
+                ctx.fillStyle = 'rgba(0, 0, 0, 0.8)';
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+                ctx.fillStyle = '#ff0080';
+                ctx.shadowBlur = 20;
+                ctx.shadowColor = '#ff0080';
+                ctx.font = '30px Courier New';
+                ctx.textAlign = 'center';
+                ctx.fillText('ПАУЗА', canvas.width / 2, canvas.height / 2);
+                ctx.textAlign = 'left';
+            }
+            
+            ctx.shadowBlur = 0;
+        }
+        
+        function gameLoop() {
+            update();
+            draw();
+            requestAnimationFrame(gameLoop);
+        }
+        
+        function restartGame() {
+            gameState = {
+                score: 0,
+                lives: 3,
+                gameOver: false,
+                paused: false,
+                level: 1,
+                time: 0
+            };
+            
+            player.x = canvas.width / 2 - 15;
+            bullets = [];
+            enemies = [];
+            explosions = [];
+            
+            document.getElementById('gameOver').style.display = 'none';
+        }
+        
+        // Запускаем игру
+        gameLoop();
+        
+        // Показываем подсказку о музыке
+        setTimeout(() => {
+            alert('Нажмите в любом месте для активации звука, затем M для управления музыкой!');
+        }, 1000);
+    </script>
+</body>
+</html>
